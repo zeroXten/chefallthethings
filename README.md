@@ -196,7 +196,7 @@ What it creates
 Rake tasks
 ----------
 
- * rake lint
- * rake test
- * rake spec
- * rake full
+ * rake lint - runs rubocop and foodcritic
+ * rake test - runs minitest via test-kitchen
+ * rake spec - runs leibniz
+ * rake full - runs all the above
