@@ -1,0 +1,190 @@
+#!/bin/bash
+
+set -e
+
+print_header()
+{
+  local header="$1"
+  local light_purple=13
+  echo "$(tput setaf $light_purple)"
+  echo "################################################################################"
+  echo " $header"
+  echo "################################################################################"
+  echo "$(tput sgr0)"
+}
+
+error()
+{
+  local error="$1"
+  local red=1
+
+  echo "$(tput setaf $red)"
+  echo " ERROR: $error"
+  echo "$(tput sgr0)"
+  exit 1
+}
+
+print_done()
+{
+  local message="$1"
+  local green=2
+  echo "$(tput setaf $green)"
+  echo " $message$(tput sgr0)"
+}
+
+name="$1"
+
+which -s ruby || error "Can't find ruby. Please install ruby, bundler and chef first"
+which -s gem || error "Can't find gem. Please install ruby, bundler and chef first"
+which -s chef-solo || error "Can't find chef. Please install ruby, bundler and chef rist"
+
+if [ -d "$name" ]; then
+  error "Sorry, directory "$name" already exists"
+fi
+
+print_header "Using berks to create cookbook"
+
+BERKS=$(which berks)
+if [ "$?" -ne "0" ]; then
+  gem install berkshelf
+fi
+
+berks cookbook "$name"
+
+pushd "$name" >/dev/null 2>&1
+
+print_header "Installing required gems"
+cat <<-EOF >> "Gemfile"
+gem 'test-kitchen'
+gem 'kitchen-vagrant'
+gem 'rspec'
+gem 'leibniz'
+gem 'rubocop'
+gem 'foodcritic'
+
+EOF
+
+bundle install
+
+print_header "Configuring test-kitchen"
+kitchen init
+
+cat <<-EOF >> .kitchen.yml
+settings:
+  parallel: true
+EOF
+
+print_header "Configuring minitest"
+cat <<-EOF >> "Berksfile"
+group :dev, :test do
+  cookbook 'minitest-handler'
+end
+EOF
+
+sed -i -e "s/run_list: \[\"recipe\[${name}\]\"\]/run_list: \[\"recipe\[${name}\]\", \"recipe\[minitest-handler\]\"\]/" .kitchen.yml
+
+mkdir "files/default/test"
+
+cat <<-EOF > "files/default/test/default_test.rb"
+require 'chef/mixin/shell_out'
+include Chef::Mixin::ShellOut
+
+# Documentation can be found here:
+#  https://github.com/seattlerb/minitest
+#  http://docs.seattlerb.org/minitest/
+
+# Basic tests
+class TestBasics < MiniTest::Chef::TestCase
+  def test_true
+    cmd = shell_out 'true'
+    assert_equal(cmd.exitstatus, 0)
+  end
+
+  def test_false
+    cmd = shell_out 'false'
+    assert_equal(cmd.exitstatus, 1)
+  end
+end
+EOF
+print_done "Done"
+
+
+print_header "Configuring leibniz"
+mkdir -p features/support
+mkdir -p features/step_definitions
+
+cat <<-EOF > "features/support/env.rb"
+require 'leibniz'
+require 'rspec'
+EOF
+
+cat <<-EOF > "features/${name}.feature"
+Feature: Test all the devops
+
+  In order to be super effective
+  As an infrastructure engineer
+  I want to use all the awesome tools
+
+Background:
+
+  Given I have provisioned the following infrastructure:
+  | Server Name         | Operating System    | Version   | Chef Version    | Run List         |
+  | ${name}-ubuntu-1204 | ubuntu              | 12.04     | 11.8.0          | ${name}::default |
+  | ${name}-centos-64   | centos              | 6.4       | 11.8.0          | ${name}::default |
+  And I have run Chef
+
+Scenario: System has bash
+  When I look for "bash"
+  Then I should see "/bin/bash"
+EOF
+
+cat <<-'EOF' > "features/step_definitions/${name}_steps.rb"
+Given(/^I have provisioned the following infrastructure:$/) do |specification|
+  @infrastructure = Leibniz.build(specification)
+end
+
+Given(/^I have run Chef$/) do
+  @infrastructure.destroy
+  @infrastructure.converge
+end
+
+When(/^I look for "(.*?)"$/) do |arg1|
+  @which_output = `which #{arg1}`.strip
+end
+
+Then(/^I should see "(.*?)"$/) do |arg1|
+  @which_output.should == arg1
+end
+EOF
+print_done "Done"
+
+print_header "Creating Rakefile"
+cat <<-EOF > "Rakefile"
+task :foodcritic do
+  sh "foodcritic ."
+end
+
+task :rubocop do
+  sh "rubocop"
+end
+
+task :kitchen_test do
+  sh "kitchen test"
+end
+
+task :cucumber do
+  sh "cucumber"
+end
+
+task :lint => [ :foodcritic, :rubocop ]
+task :test => [ :kitchen_test ]
+task :spec => [ :cucumber ]
+task :full => [ :lint, :test, :spec ]
+EOF
+print_done "Done"
+
+popd > /dev/null 2>&1
+
+print_done "All done finished. Run 'cd $name; rake full' to start full test suite."
+
+exit 0
