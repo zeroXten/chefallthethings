@@ -53,6 +53,12 @@ berks cookbook "$name"
 
 pushd "$name" >/dev/null 2>&1
 
+print_header "Configuring Vagrant"
+
+sed -i '' -e '/config.ssh.timeout/d' -e '/config.ssh.max_tries/d' Vagrantfile
+
+print_done "Done"
+
 print_header "Installing required gems"
 cat <<-EOF >> "Gemfile"
 gem 'test-kitchen'
