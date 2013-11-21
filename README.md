@@ -1,5 +1,10 @@
+Installation
+------------
+
+Download the bash script and stick it somewhere in $PATH
+
 Usage
-=====
+-----
 
     $ chefallthethings myface
 
