@@ -32,14 +32,27 @@ print_done()
   echo " $message$(tput sgr0)"
 }
 
-name="$1"
+name=$1
+config_file=$2
 
-which -s ruby || error "Can't find ruby. Please install ruby, bundler and chef first"
-which -s gem || error "Can't find gem. Please install ruby, bundler and chef first"
-which -s chef-solo || error "Can't find chef. Please install ruby, bundler and chef rist"
+requirements_error="Please install ruby, bundler and chef first"
+which -s ruby || error "Can't find ruby. $requirements_error"
+which -s gem || error "Can't find gem. $requirements_error"
+which -s chef-solo || error "Can't find chef. $requirements_error"
 
 if [ -d "$name" ]; then
-  error "Sorry, directory "$name" already exists"
+  error "Sorry, directory '$name' already exists"
+fi
+
+VAGRANT_BOX="Berkshelf-CentOS-6.3-x86_64-minimal"
+VAGRANT_BOX_URL="https://dl.dropbox.com/u/31081437/Berkshelf-CentOS-6.3-x86_64-minimal.box"
+PLATFORM_NAME="centos"
+PLATFORM_VERSION="6.3"
+CHEF_VERSION="11.8.0"
+
+if [ -r "$config_file" ]; then
+  echo "Using configuration file $config_file"
+  source "$config_file"
 fi
 
 print_header "Using berks to create cookbook"
@@ -53,32 +66,101 @@ berks cookbook "$name"
 
 pushd "$name" >/dev/null 2>&1
 
-print_header "Configuring Vagrant"
-
-sed -i '' -e '/config.ssh.timeout/d' -e '/config.ssh.max_tries/d' Vagrantfile
-
-print_done "Done"
-
 print_header "Installing required gems"
 cat <<-EOF >> "Gemfile"
 gem 'test-kitchen'
 gem 'kitchen-vagrant'
 gem 'rspec'
-gem 'leibniz'
+gem 'leibniz', :git => 'git://github.com/zeroXten/leibniz.git', :branch => 'custom_boxes'
 gem 'rubocop'
 gem 'foodcritic'
-
+gem 'serverspec'
 EOF
 
 bundle install
 
+print_header "Configuring Vagrant"
+vagrant_file="Vagrantfile"
+cat <<EOF > $vagrant_file
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.hostname = "${name}"
+  config.vm.box = "${VAGRANT_BOX}"
+EOF
+
+if [ -n "$VAGRANT_BOX_URL" ]; then
+  echo "config.vm.box_url = \"${VAGRANT_BOX_URL}\"" >> $vagrant_file
+fi
+
+cat <<EOF >> $vagrant_file
+  config.vm.network :private_network, ip: "33.33.33.10"
+  config.berkshelf.enabled = true
+  config.vm.provision :chef_solo do |chef|
+    chef.json = {
+      :mysql => {
+        :server_root_password => 'rootpass',
+        :server_debian_password => 'debpass',
+        :server_repl_password => 'replpass'
+      }
+    }
+
+    chef.run_list = [
+        "recipe[${name}::default]"
+    ]
+  end
+end
+EOF
+print_done "Done"
+
+print_header "Configuring rubocop"
+cat <<EOF > .rubocop.yml
+LineLength:
+  Max: 119
+TrailingWhitespace:
+  Enabled: false
+TrailingBlankLines:
+  Enabled: false
+EOF
+
 print_header "Configuring test-kitchen"
+kitchen_file=".kitchen.yml"
+rm $kitchen_file
+
 kitchen init
 
-cat <<-EOF >> .kitchen.yml
+cat <<EOF > $kitchen_file
+---
+driver:
+  name: vagrant
+
+provisioner:
+  name: chef_solo
+
+platforms:
+  - name: ${VAGRANT_BOX}
+    driver_config:
+      box: ${VAGRANT_BOX}
+EOF
+
+if [ -n "$VAGRANT_BOX_URL" ]; then
+  cat <<EOF >> $kitchen_file
+      box_url: ${VAGRANT_BOX_URL}
+EOF
+fi
+
+cat <<EOF >> $kitchen_file
+suites:
+  - name: default
+    run_list:
+      - recipe[${name}::default]
+    attributes:
+
 settings:
   parallel: true
 EOF
+print_done "Done"
 
 print_header "Configuring minitest"
 cat <<-EOF >> "Berksfile"
@@ -134,9 +216,8 @@ Feature: Test all the devops
 Background:
 
   Given I have provisioned the following infrastructure:
-  | Server Name         | Operating System    | Version   | Chef Version    | Run List         |
-  | ${name}-ubuntu-1204 | ubuntu              | 12.04     | 11.8.0          | ${name}::default |
-  | ${name}-centos-64   | centos              | 6.4       | 11.8.0          | ${name}::default |
+  | Server Name         | Operating System    | Version   | Box | Run List         |
+  | ${name}-${PLATFORM_NAME//./_}-${PLATFORM_VERSION//./_}   | ${PLATFORM_NAME}              | ${PLATFORM_VERSION}       | ${VAGRANT_BOX} | ${name}::default |
   And I have run Chef
 
 Scenario: System has bash
