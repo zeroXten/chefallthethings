@@ -47,9 +47,9 @@ config_file=$2
 fresh_install=
 
 requirements_error="Please install ruby, bundler and chef first"
-which -s ruby || error "Can't find ruby. $requirements_error"
-which -s gem || error "Can't find gem. $requirements_error"
-which -s chef-solo || error "Can't find chef. $requirements_error"
+which ruby >/dev/null 2>&1 || error "Can't find ruby. $requirements_error"
+which gem >/dev/null 2>&1 || error "Can't find gem. $requirements_error"
+which chef-solo >/dev/null 2>&1 || error "Can't find chef. $requirements_error"
 
 VAGRANT_BOX="opscode-ubuntu-12.04"
 VAGRANT_BOX_URL="https://opscode-vm-bento.s3.amazonaws.com/vagrant/opscode_ubuntu-12.04_provisionerless.box"
