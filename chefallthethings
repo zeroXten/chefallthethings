@@ -13,6 +13,16 @@ print_header()
   echo "$(tput sgr0)"
 }
 
+warn()
+{
+  local warning="$1"
+  local orange="3"
+
+  echo "$(tput setaf $orange)"
+  echo " WARNING: $warning"
+  echo "$(tput sgr0)"
+}
+
 error()
 {
   local error="$1"
@@ -34,15 +44,12 @@ print_done()
 
 name=$1
 config_file=$2
+fresh_install=
 
 requirements_error="Please install ruby, bundler and chef first"
 which -s ruby || error "Can't find ruby. $requirements_error"
 which -s gem || error "Can't find gem. $requirements_error"
 which -s chef-solo || error "Can't find chef. $requirements_error"
-
-if [ -d "$name" ]; then
-  error "Sorry, directory '$name' already exists"
-fi
 
 VAGRANT_BOX="Berkshelf-CentOS-6.3-x86_64-minimal"
 VAGRANT_BOX_URL="https://dl.dropbox.com/u/31081437/Berkshelf-CentOS-6.3-x86_64-minimal.box"
@@ -62,12 +69,21 @@ if [ "$?" -ne "0" ]; then
   gem install berkshelf
 fi
 
-berks cookbook "$name"
+if [ -d "$name" ]; then
+  print_done "Directory '$name' already exists, skipping."
+else
+  fresh_install=1
+  berks cookbook "$name"
+fi
 
 pushd "$name" >/dev/null 2>&1
 
-print_header "Installing required gems"
-cat <<-EOF >> "Gemfile"
+if [ $fresh_install ]; then
+  print_header "Installing required gems"
+  cat <<-EOF > Gemfile
+source 'https://rubygems.org'
+
+gem "berkshelf", github: "berkshelf/berkshelf"
 gem 'test-kitchen'
 gem 'kitchen-vagrant'
 gem 'rspec'
@@ -75,13 +91,17 @@ gem 'leibniz', :git => 'git://github.com/zeroXten/leibniz.git', :branch => 'cust
 gem 'rubocop'
 gem 'foodcritic'
 gem 'serverspec'
+gem 'chefspec'
 EOF
+  print_done "Done"
+fi
 
 bundle install
 
-print_header "Configuring Vagrant"
-vagrant_file="Vagrantfile"
-cat <<EOF > $vagrant_file
+if [ $fresh_install ]; then
+  print_header "Configuring Vagrant"
+  vagrant_file="Vagrantfile"
+  cat <<EOF > $vagrant_file
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
@@ -90,32 +110,26 @@ Vagrant.configure("2") do |config|
   config.vm.box = "${VAGRANT_BOX}"
 EOF
 
-if [ -n "$VAGRANT_BOX_URL" ]; then
-  echo "config.vm.box_url = \"${VAGRANT_BOX_URL}\"" >> $vagrant_file
-fi
+  if [ -n "$VAGRANT_BOX_URL" ]; then
+    echo "config.vm.box_url = \"${VAGRANT_BOX_URL}\"" >> $vagrant_file
+  fi
 
-cat <<EOF >> $vagrant_file
+  cat <<EOF >> $vagrant_file
   config.vm.network :private_network, ip: "33.33.33.10"
   config.berkshelf.enabled = true
   config.vm.provision :chef_solo do |chef|
-    chef.json = {
-      :mysql => {
-        :server_root_password => 'rootpass',
-        :server_debian_password => 'debpass',
-        :server_repl_password => 'replpass'
-      }
-    }
-
     chef.run_list = [
         "recipe[${name}::default]"
     ]
   end
 end
 EOF
-print_done "Done"
+  print_done "Done"
+fi
 
-print_header "Configuring rubocop"
-cat <<EOF > .rubocop.yml
+if [ $fresh_install ]; then
+  print_header "Configuring rubocop"
+  cat <<-EOF > .rubocop.yml
 LineLength:
   Max: 119
 TrailingWhitespace:
@@ -123,14 +137,16 @@ TrailingWhitespace:
 TrailingBlankLines:
   Enabled: false
 EOF
+fi
 
-print_header "Configuring test-kitchen"
-kitchen_file=".kitchen.yml"
-rm $kitchen_file
+if [ $fresh_install ]; then
+  print_header "Configuring test-kitchen"
+  kitchen_file=".kitchen.yml"
+  rm $kitchen_file
 
-kitchen init
+  kitchen init
 
-cat <<EOF > $kitchen_file
+  cat <<EOF > $kitchen_file
 ---
 driver:
   name: vagrant
@@ -144,13 +160,13 @@ platforms:
       box: ${VAGRANT_BOX}
 EOF
 
-if [ -n "$VAGRANT_BOX_URL" ]; then
-  cat <<EOF >> $kitchen_file
+  if [ -n "$VAGRANT_BOX_URL" ]; then
+    cat <<EOF >> $kitchen_file
       box_url: ${VAGRANT_BOX_URL}
 EOF
-fi
+  fi
 
-cat <<EOF >> $kitchen_file
+  cat <<EOF >> $kitchen_file
 suites:
   - name: default
     run_list:
@@ -161,20 +177,25 @@ suites:
 settings:
   parallel: true
 EOF
-print_done "Done"
+  print_done "Done"
+fi
 
 print_header "Configuring minitest"
-cat <<-EOF >> "Berksfile"
+
+if [ $fresh_install ]; then
+  cat <<-EOF >> "Berksfile"
 group :dev, :test do
   cookbook 'minitest-handler'
 end
 EOF
+fi
 
-sed -i -e "s/run_list: \[\"recipe\[${name}\]\"\]/run_list: \[\"recipe\[${name}\]\", \"recipe\[minitest-handler\]\"\]/" .kitchen.yml
+if [ ! -d "files/default/test" ]; then
+  mkdir "files/default/test"
+fi
 
-mkdir "files/default/test"
-
-cat <<-EOF > "files/default/test/default_test.rb"
+if [ $fresh_install ]; then
+  cat <<-EOF > "files/default/test/default_test.rb"
 require 'chef/mixin/shell_out'
 include Chef::Mixin::ShellOut
 
@@ -195,19 +216,21 @@ class TestBasics < MiniTest::Chef::TestCase
   end
 end
 EOF
-print_done "Done"
+  print_done "Done"
+fi
 
+if [ $fresh_install ]; then
+  print_header "Configuring leibniz"
+  mkdir -p features/support
+  mkdir -p features/step_definitions
 
-print_header "Configuring leibniz"
-mkdir -p features/support
-mkdir -p features/step_definitions
-
-cat <<-EOF > "features/support/env.rb"
+  cat <<-EOF > "features/support/env.rb"
 require 'leibniz'
 require 'rspec'
 EOF
 
-cat <<-EOF > "features/${name}.feature"
+
+  cat <<-EOF > "features/${name}.feature"
 Feature: Test all the devops
 
   In order to be super effective
@@ -226,7 +249,7 @@ Scenario: System has bash
   Then I should see "/bin/bash"
 EOF
 
-cat <<-'EOF' > "features/step_definitions/${name}_steps.rb"
+  cat <<-'EOF' > "features/step_definitions/${name}_steps.rb"
 Given(/^I have provisioned the following infrastructure:$/) do |specification|
   @infrastructure = Leibniz.build(specification)
 end
@@ -244,7 +267,8 @@ Then(/^I should see "(.*?)"$/) do |arg1|
   @which_output.should == arg1
 end
 EOF
-print_done "Done"
+  print_done "Done"
+fi
 
 print_header "Creating Rakefile"
 cat <<-EOF > "Rakefile"
