@@ -51,10 +51,10 @@ which -s ruby || error "Can't find ruby. $requirements_error"
 which -s gem || error "Can't find gem. $requirements_error"
 which -s chef-solo || error "Can't find chef. $requirements_error"
 
-VAGRANT_BOX="Berkshelf-CentOS-6.3-x86_64-minimal"
-VAGRANT_BOX_URL="https://dl.dropbox.com/u/31081437/Berkshelf-CentOS-6.3-x86_64-minimal.box"
-PLATFORM_NAME="centos"
-PLATFORM_VERSION="6.3"
+VAGRANT_BOX="opscode-ubuntu-12.04"
+VAGRANT_BOX_URL="https://opscode-vm-bento.s3.amazonaws.com/vagrant/opscode_ubuntu-12.04_provisionerless.box"
+PLATFORM_NAME="ubuntu"
+PLATFORM_VERSION="12.04"
 CHEF_VERSION="11.8.0"
 
 if [ -r "$config_file" ]; then
