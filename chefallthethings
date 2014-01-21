@@ -142,7 +142,9 @@ fi
 if [ $fresh_install ]; then
   print_header "Configuring test-kitchen"
   kitchen_file=".kitchen.yml"
-  rm $kitchen_file
+  if [ -e "$kitchen_file" ]; then
+    rm $kitchen_file
+  fi
 
   kitchen init
 
